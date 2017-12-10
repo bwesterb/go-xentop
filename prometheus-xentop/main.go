@@ -75,6 +75,7 @@ func updateMetrics(line xentop.Line) {
 
 func main() {
 	addr := flag.String("bind", ":8080", "The address to bind to")
+	cmd := flag.String("xentop", "xentop", "Path to xentop")
 	flag.Parse()
 
 	http.Handle("/metrics", promhttp.Handler())
@@ -82,7 +83,7 @@ func main() {
 	lines := make(chan xentop.Line, 2)
 	errs := make(chan error, 2)
 
-	go xentop.XenTop(lines, errs)
+	go xentop.XenTopCmd(lines, errs, *cmd)
 	go func() {
 		for {
 			select {

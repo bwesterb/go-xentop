@@ -140,9 +140,8 @@ func parseHeader(line []byte) (ret []headerField) {
 	}
 }
 
-// Runs xentop and writes lines and errors back over the provided channels.
-func XenTop(lines chan<- Line, errs chan<- error) {
-	cmd := exec.Command("xentop", "-b")
+func XenTopCmd(lines chan<- Line, errs chan<- error, cmdPath string) {
+	cmd := exec.Command(cmdPath, "-b")
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -185,6 +184,11 @@ func XenTop(lines chan<- Line, errs chan<- error) {
 		}
 		lines <- pLine
 	}
+}
+
+// Runs xentop and writes lines and errors back over the provided channels.
+func XenTop(lines chan<- Line, errs chan<- error) {
+	XenTopCmd(lines, errs, "xentop")
 }
 
 func init() {
