@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"reflect"
+	"runtime"
 	"strconv"
 )
 
@@ -179,9 +180,22 @@ func XenTopCmd(lines chan<- Line, errs chan<- error, cmdPath string) {
 		}
 
 		pLine, pErrs := fillLine(parseLine(line, header))
-		for _, err := range pErrs {
-			errs <- err
+
+		// Sometimes xentop reports a ridiculously high CPU time and CPU
+		// which should not be trusted and also breaks alignment of the other
+		// fields in this line.  If we notice this, we simply ignore the entire
+		// line.
+		if pLine.CpuFraction > float32(runtime.NumCPU()*200) {
+			errs <- fmt.Errorf("Crazy CPU(%%) value (%f) --- ignoring line",
+				pLine.CpuFraction)
+			continue
 		}
+
+		if len(pErrs) != 0 {
+			errs <- fmt.Errorf("Couldn't parse %v: found error(s): %v",
+				line, pErrs)
+		}
+
 		lines <- pLine
 	}
 }
