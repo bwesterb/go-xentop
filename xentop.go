@@ -126,9 +126,7 @@ func XenTopCmd(lines chan<- Line, errs chan<- error, cmdPath string) {
 		}
 		line = strings.TrimSpace(line)
 
-		isHeader := strings.HasPrefix(line, "NAME")
-
-		if isHeader {
+		if strings.HasPrefix(line, "NAME") {
 			header = strings.Fields(line)
 			continue
 		}
