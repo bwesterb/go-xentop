@@ -3,15 +3,13 @@ package xentop
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"os/exec"
 	"reflect"
 	"runtime"
 	"strconv"
+	"strings"
 )
-
-var fieldNames [][]byte
 
 // A line in xentop
 type Line struct {
@@ -31,13 +29,13 @@ type Line struct {
 	DiskBlockedIO      int64   `field:"VBD_OO"`
 	DiskReadOps        int64   `field:"VBD_RD"`
 	DiskWriteOps       int64   `field:"VBD_WR"`
-	DiskSectorsRead    int64   `field:"VBD_RSEC"`
-	DiskSectorsWritten int64   `field:"VBD_WSEC"`
+	DiskSectorsRead    int64   `field:"VBD_RSECT"`
+	DiskSectorsWritten int64   `field:"VBD_WSECT"`
 	SSID               int64   `field:"SSID"`
 }
 
 // Fills a Line struct with the values from parseLine
-func fillLine(data map[string][]byte) (ret Line, errs []error) {
+func fillLine(data map[string]string) (ret Line, errs []error) {
 	errs = []error{}
 	pRet := &Line{}
 	sv := reflect.Indirect(reflect.ValueOf(pRet))
@@ -55,21 +53,21 @@ func fillLine(data map[string][]byte) (ret Line, errs []error) {
 		}
 		delete(data, fieldName)
 		field := sv.FieldByIndex(fieldType.Index)
-		if string(val) == "n/a" || string(val) == "no limit" {
+		if val == "n/a" || val == "no-limit" {
 			continue
 		}
 		switch fieldType.Type.Kind() {
 		case reflect.String:
-			field.SetString(string(val))
+			field.SetString(val)
 		case reflect.Float32:
-			pVal, err := strconv.ParseFloat(string(val), 32)
+			pVal, err := strconv.ParseFloat(val, 32)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("%s: could not parse: %s", fieldName, err))
 				continue
 			}
 			field.SetFloat(float64(pVal))
 		case reflect.Int64:
-			pVal, err := strconv.ParseInt(string(val), 10, 64)
+			pVal, err := strconv.ParseInt(val, 10, 64)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("%s: could not parse: %s", fieldName, err))
 				continue
@@ -83,62 +81,22 @@ func fillLine(data map[string][]byte) (ret Line, errs []error) {
 	return
 }
 
-// Represents a field in the headerline
-type headerField struct {
-	offset int
-	field  string
-}
-
 // Parse a line returned by "xentop -b"
-func parseLine(line []byte, header []headerField) (ret map[string][]byte) {
-	ret = make(map[string][]byte)
-	for i, hf := range header {
-		var nextOffset int
-		if i == len(header)-1 {
-			nextOffset = len(line)
+func parseLine(line string, header []string) (map[string]string, error) {
+	ret := make(map[string]string)
+	line = strings.Replace(line, "no limit", "no-limit", -1) // avoid spaces in fields
+	fields := strings.Fields(line)
+	if len(fields) != len(header) {
+		if len(fields) == 0 {
+			return nil, fmt.Errorf("parseLine: empty line")
 		} else {
-			nextOffset = header[i+1].offset
-		}
-		ret[hf.field] = bytes.TrimSpace(line[hf.offset:nextOffset])
-	}
-	return
-}
-
-// Parse a headerline returned by "xentop -b"
-func parseHeader(line []byte) (ret []headerField) {
-	originalLength := len(line)
-	ret = make([]headerField, 0)
-	for {
-		fieldOffset := originalLength - len(line)
-		line = bytes.TrimSpace(line)
-		if len(line) == 0 {
-			return
-		}
-		ok := false
-		for _, fieldName := range fieldNames {
-			if !bytes.HasPrefix(line, fieldName) {
-				continue
-			}
-			ret = append(ret, headerField{
-				offset: fieldOffset,
-				field:  string(fieldName),
-			})
-			line = line[len(fieldName):]
-			ok = true
-			break
-		}
-		if !ok {
-			bits := bytes.SplitN(line, []byte(" "), 2)
-			ret = append(ret, headerField{
-				offset: fieldOffset,
-				field:  string(bits[0]),
-			})
-			if len(bits) == 1 {
-				return
-			}
-			line = bits[1]
+			return nil, fmt.Errorf("parseLine: num fields does not match header for %s", fields[0])
 		}
 	}
+	for i, key := range header {
+		ret[key] = fields[i]
+	}
+	return ret, nil
 }
 
 func XenTopCmd(lines chan<- Line, errs chan<- error, cmdPath string) {
@@ -158,19 +116,18 @@ func XenTopCmd(lines chan<- Line, errs chan<- error, cmdPath string) {
 
 	r := bufio.NewReader(stdout)
 
-	var header []headerField
+	var header []string
 
 	for {
-		line, err := r.ReadBytes('\n')
+		line, err := r.ReadString('\n')
 		if err != nil {
 			errs <- fmt.Errorf("fatal: %s", err)
 			return
 		}
+		line = strings.TrimSpace(line)
 
-		isHeader := bytes.HasPrefix(bytes.TrimSpace(line), []byte("NAME"))
-
-		if isHeader {
-			header = parseHeader(line)
+		if strings.HasPrefix(line, "NAME") {
+			header = strings.Fields(line)
 			continue
 		}
 
@@ -179,7 +136,11 @@ func XenTopCmd(lines chan<- Line, errs chan<- error, cmdPath string) {
 			return
 		}
 
-		pLine, pErrs := fillLine(parseLine(line, header))
+		fields, err := parseLine(line, header)
+		if err != nil {
+			errs <- err
+		}
+		pLine, pErrs := fillLine(fields)
 
 		// Sometimes xentop reports a ridiculously high CPU time and CPU
 		// which should not be trusted and also breaks alignment of the other
@@ -203,16 +164,4 @@ func XenTopCmd(lines chan<- Line, errs chan<- error, cmdPath string) {
 // Runs xentop and writes lines and errors back over the provided channels.
 func XenTop(lines chan<- Line, errs chan<- error) {
 	XenTopCmd(lines, errs, "xentop")
-}
-
-func init() {
-	// fill the fieldNames slice
-	fieldNames = make([][]byte, 0)
-	lineType := reflect.ValueOf(Line{}).Type()
-	for i := 0; i < lineType.NumField(); i++ {
-		fieldType := lineType.Field(i)
-		if fieldName, ok := fieldType.Tag.Lookup("field"); ok {
-			fieldNames = append(fieldNames, []byte(fieldName))
-		}
-	}
 }
