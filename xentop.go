@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"os/exec"
 	"reflect"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 )
+
+var nameRE *regexp.Regexp
 
 // A line in xentop
 type Line struct {
@@ -90,7 +93,11 @@ func parseLine(line string, header []string) (map[string]string, error) {
 	// avoid spaces in fields
 	line = strings.Replace(line, "no limit", "no-limit", -1)
 
-	fields := strings.Fields(line)
+	indices := nameRE.FindSubmatchIndex([]byte(line))
+	fields := append(
+		[]string{line[indices[2]:indices[3]]},
+		strings.Fields(line[indices[4]:indices[5]])...,
+	)
 	if len(fields) != len(header) {
 		if len(fields) == 0 {
 			return nil, fmt.Errorf("parseLine: empty line")
@@ -170,4 +177,12 @@ func XenTopCmd(lines chan<- Line, errs chan<- error, cmdPath string) {
 // Runs xentop and writes lines and errors back over the provided channels.
 func XenTop(lines chan<- Line, errs chan<- error) {
 	XenTopCmd(lines, errs, "xentop")
+}
+
+func init() {
+	var err error
+	nameRE, err = regexp.Compile("^ *(.*) ([-d][-s][-b][-c][-p][-r] .*)$")
+	if err != nil {
+		panic(err)
+	}
 }
