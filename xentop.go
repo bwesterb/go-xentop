@@ -62,14 +62,16 @@ func fillLine(data map[string]string) (ret Line, errs []error) {
 		case reflect.Float32:
 			pVal, err := strconv.ParseFloat(val, 32)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("%s: could not parse: %s", fieldName, err))
+				errs = append(errs, fmt.Errorf("%s: could not parse: %s",
+					fieldName, err))
 				continue
 			}
 			field.SetFloat(float64(pVal))
 		case reflect.Int64:
 			pVal, err := strconv.ParseInt(val, 10, 64)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("%s: could not parse: %s", fieldName, err))
+				errs = append(errs, fmt.Errorf("%s: could not parse: %s",
+					fieldName, err))
 				continue
 			}
 			field.SetInt(pVal)
@@ -84,13 +86,17 @@ func fillLine(data map[string]string) (ret Line, errs []error) {
 // Parse a line returned by "xentop -b"
 func parseLine(line string, header []string) (map[string]string, error) {
 	ret := make(map[string]string)
-	line = strings.Replace(line, "no limit", "no-limit", -1) // avoid spaces in fields
+
+	// avoid spaces in fields
+	line = strings.Replace(line, "no limit", "no-limit", -1)
+
 	fields := strings.Fields(line)
 	if len(fields) != len(header) {
 		if len(fields) == 0 {
 			return nil, fmt.Errorf("parseLine: empty line")
 		} else {
-			return nil, fmt.Errorf("parseLine: num fields does not match header for %s", fields[0])
+			return nil, fmt.Errorf(
+				"parseLine: num fields does not match header for %s", fields[0])
 		}
 	}
 	for i, key := range header {
